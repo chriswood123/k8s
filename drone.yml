@@ -1,0 +1,97 @@
+# Need to create some secrets first:
+# kubectl create secret tls cwdronecert --key ~/tmp/k8s.key --cert ~/tmp/k8s.cert
+# kubectl create secret generic drone-github-auth --from-literal=id= --from-literal=secret= 
+# kubectl create secret generic drone-secret --from-literal=secret=
+#
+# Then:
+# kubectl apply -f drone-master-deployment.yml
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+    name: drone-master-disk
+spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+        requests:
+            storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: drone-master-deployment
+    labels:
+        app: drone-master
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            app: drone-master
+    template:
+        metadata:
+            labels:
+                app: drone-master
+        spec:
+            containers:
+            - name: drone-master
+              image: drone/drone:0.8
+              ports:
+              - containerPort: 8000
+              volumeMounts:
+              - mountPath: '/var/lib/drone'
+                name: drone-master-disk
+              env:
+              - name: DRONE_ADMIN
+                value: 'chriswood123'
+              - name: DRONE_OPEN
+                value: 'true'
+              - name: DRONE_HOST
+                value: 'https://cwdrone.colab.cloudreach.com'
+              - name: DRONE_GITHUB
+                value: 'true'
+              - name: DRONE_GITHUB_CLIENT
+                valueFrom:
+                    secretKeyRef:
+                        name: drone-github-auth
+                        key: 'id'
+              - name: DRONE_GITHUB_SECRET
+                valueFrom:
+                    secretKeyRef:
+                        name: drone-github-auth
+                        key: 'secret'
+              - name: DRONE_SECRET
+                valueFrom:
+                    secretKeyRef:
+                        name: drone-secret
+                        key: 'secret'
+            volumes:
+            - name: drone-master-disk
+              persistentVolumeClaim:
+                claimName: drone-master-disk
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: drone-master-service
+    labels:
+        app: drone-master
+spec:
+    type: NodePort
+    ports:
+    - targetPort: 8000
+      port: 8000
+      nodePort: 30001
+    selector:
+        app: drone-master
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+    name: drone-master-ingress
+spec:
+    tls:
+    - secretName: cwdronecert
+    backend:
+        serviceName: drone-master-service
+        servicePort: 8000
